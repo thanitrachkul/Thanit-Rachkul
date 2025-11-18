@@ -1,0 +1,7 @@
+{
+  "name": "Gemini AI Voice Chat",
+  "description": "An application that allows users to have real-time voice conversations with an AI, featuring an animated avatar that lip-syncs to the AI's speech.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
