@@ -33,6 +33,12 @@ const VoiceMode: React.FC<VoiceModeProps> = ({ onBack }) => {
     if ('speechSynthesis' in window) {
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'th-TH';
+      // Attempt to select a more natural Thai voice if available
+      const voices = window.speechSynthesis.getVoices();
+      const thaiVoice = voices.find((v) => v.lang?.toLowerCase().startsWith('th'));
+      if (thaiVoice) {
+        utterance.voice = thaiVoice;
+      }
       window.speechSynthesis.speak(utterance);
     }
   };
@@ -66,44 +72,62 @@ const VoiceMode: React.FC<VoiceModeProps> = ({ onBack }) => {
     }
   };
 
-  const startRecording = () => {
+  // Start or stop a continuous voice conversation.  When started, the
+  // browser will listen for a single utterance, send it to the backend,
+  // speak the response, and then immediately listen for the next utterance
+  // until stopped by the user.
+  const toggleConversation = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       alert('ขออภัยค่ะ เบราว์เซอร์ของคุณไม่รองรับการพิมพ์ด้วยเสียง');
       return;
     }
+    // If currently recording, stop and clean up
     if (isRecording) {
       recognitionRef.current?.stop();
+      recognitionRef.current = null;
+      setIsRecording(false);
+      setStatusMessage('หยุดการสนทนาแล้ว');
       return;
     }
-    const recognition = new SpeechRecognition();
-    recognitionRef.current = recognition;
-    recognition.lang = 'th-TH';
-    recognition.interimResults = false;
-    recognition.continuous = false;
-    recognition.onstart = () => {
-      setIsRecording(true);
-      setStatusMessage('กำลังฟัง...');
+    // Otherwise, start listening and initiate continuous conversation
+    setIsRecording(true);
+    setStatusMessage('กำลังฟัง...');
+
+    const startRecognition = () => {
+      const recognition = new SpeechRecognition();
+      recognitionRef.current = recognition;
+      recognition.lang = 'th-TH';
+      recognition.interimResults = false;
+      recognition.continuous = false;
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript.trim();
+        if (transcript) {
+          sendToBackend(transcript);
+        }
+        // After handling the result, if the conversation is still active,
+        // start a new recognition cycle
+        if (isRecording) {
+          startRecognition();
+        }
+      };
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        setStatusMessage('เกิดข้อผิดพลาดในการรับเสียง');
+        // Optionally restart after error
+        if (isRecording) {
+          startRecognition();
+        }
+      };
+      recognition.onend = () => {
+        // If ended unexpectedly and still active, restart
+        if (isRecording) {
+          startRecognition();
+        }
+      };
+      recognition.start();
     };
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript.trim();
-      recognition.stop();
-      setIsRecording(false);
-      if (transcript) {
-        sendToBackend(transcript);
-      } else {
-        setStatusMessage('ไม่ได้ยินอะไรเลย ลองอีกครั้ง');
-      }
-    };
-    recognition.onerror = (event: any) => {
-      console.error('Speech recognition error:', event.error);
-      setIsRecording(false);
-      setStatusMessage('เกิดข้อผิดพลาดในการรับเสียง');
-    };
-    recognition.onend = () => {
-      setIsRecording(false);
-    };
-    recognition.start();
+    startRecognition();
   };
 
   return (
@@ -138,9 +162,9 @@ const VoiceMode: React.FC<VoiceModeProps> = ({ onBack }) => {
       <div className="w-full flex-shrink-0 pt-4">
         <div className="flex justify-center items-center">
           <button
-            onClick={startRecording}
+            onClick={toggleConversation}
             className={`bg-green-500 rounded-full w-16 h-16 flex items-center justify-center text-white shadow-md hover:bg-green-600 transition-colors ${isRecording ? 'animate-pulse' : ''}`}
-            aria-label={isRecording ? 'กำลังบันทึกเสียง' : 'เริ่มพูด'}
+            aria-label={isRecording ? 'หยุดการสนทนา' : 'เริ่มพูด'}
           >
             <i className="fas fa-microphone"></i>
           </button>
