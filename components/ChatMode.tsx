@@ -185,7 +185,7 @@ const ChatMode: React.FC<ChatModeProps> = ({ onBack }) => {
       // Use a relative path so that the same code works locally (e.g. via
       // proxy) and when deployed.  The base URL can be overridden via
       // VITE_BACKEND_URL in your .env.local for local development.
-      const baseUrl = import.meta.env.VITE_BACKEND_URL || '';
+      const baseUrl = import.meta.env.VITE_BACKEND_URL || ''https://rightcode-buddy-backend.onrender.com'
       const response = await fetch(`${baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
