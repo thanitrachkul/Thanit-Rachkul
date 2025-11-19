@@ -185,12 +185,7 @@ const ChatMode: React.FC<ChatModeProps> = ({ onBack }) => {
       // Use a relative path so that the same code works locally (e.g. via
       // proxy) and when deployed.  The base URL can be overridden via
       // VITE_BACKEND_URL in your .env.local for local development.
-      // Determine the base URL for the backend.  If VITE_BACKEND_URL is
-      // defined (e.g. via .env during local development or build), use it.
-      // Otherwise, fall back to the deployed backend on Render.  This
-      // ensures that the front‑end still works when the environment
-      // variable is not injected at build time (such as on GitHub Pages).
-      const baseUrl = import.meta.env.VITE_BACKEND_URL || 'https://thanit-rachkul.onrender.com';
+      const baseUrl = import.meta.env.VITE_BACKEND_URL || '';
       const response = await fetch(`${baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
