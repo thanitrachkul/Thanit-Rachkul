@@ -94,8 +94,12 @@ app.post('/api/chat', async (req, res) => {
     const wantsImage = keywords.some((kw) => prompt.toLowerCase().includes(kw));
 
     if (wantsImage) {
+      // Use the base model with an image response modality.  The "-image" variant
+      // is not always available via the public API.  Specifying the response
+      // modality instructs the model to return a generated image encoded in
+      // base64 without exposing the API key to the client.
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
+        model: 'gemini-2.5-flash',
         contents: { parts: [{ text: prompt }] },
         config: {
           responseModalities: [Modality.IMAGE],
@@ -105,7 +109,7 @@ app.post('/api/chat', async (req, res) => {
       const part = response.candidates?.[0]?.content?.parts?.[0];
       if (part?.inlineData) {
         const base64Data = part.inlineData.data;
-        const mimeType = part.inlineData.mimeType;
+        const mimeType = part.inlineData.mimeType || 'image/png';
         return res.json({ imageUrl: `data:${mimeType};base64,${base64Data}` });
       }
       return res.json({ text: 'ขออภัยค่ะ ไม่สามารถสร้างภาพได้ในขณะนี้' });
