@@ -1,5 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { GoogleGenAI, Modality } from '@google/genai';
+// We no longer import the Gemini client library on the front‑end. Instead,
+// chat interactions are proxied through a backend API so that the
+// Gemini API key stays safely on the server.  If you still need to
+// support direct calls to the Gemini SDK on the client for other
+// features (like streaming audio), you can import from
+// '@google/genai' in those specific modules.
 import { ChatMessage as ChatMessageType } from '../types';
 import ChatMessage from './ChatMessage';
 
@@ -142,92 +147,79 @@ const ChatMode: React.FC<ChatModeProps> = ({ onBack }) => {
   };
 
   const handleSend = async () => {
+    // Do nothing if there's no user input and no image, or if a request is already in flight.
     if ((!input.trim() && !imageFile) || isLoading) return;
 
     setIsLoading(true);
 
-    const userMessage: ChatMessageType = { 
-        role: 'user', 
-        text: input,
-        ...(imagePreview && { imageUrl: imagePreview }),
+    // Immediately append the user's message to the local state so the UI feels responsive.
+    const userMessage: ChatMessageType = {
+      role: 'user',
+      text: input,
+      ...(imagePreview && { imageUrl: imagePreview }),
     };
     setMessages((prev) => [...prev, userMessage]);
-    
-    // Store and then clear state
+
+    // Capture the current input and image before resetting state.
     const currentInput = input;
     const currentImageFile = imageFile;
     setInput('');
     handleRemoveImage();
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-      let modelResponse: ChatMessageType;
-      
-      const safetyInstruction = {
-        systemInstruction: 'You are "น้อง RightCode Buddy", a friendly and helpful AI assistant from Thailand. Your name is "น้อง RightCode Buddy". You must ALWAYS refer to yourself as "น้อง RightCode Buddy", not Gemini or any other AI model. You are capable of searching the web and generating images directly in this chat. Respond in Thai. Ensure all content is child-friendly, avoiding any sensitive, violent, or adult topics.',
-      };
-
+      // Convert any attached image to base64 so it can be sent to the backend.
+      let encodedImage: { mimeType: string; data: string } | null = null;
       if (currentImageFile) {
-        const base64Image = await fileToBase64(currentImageFile);
-        const imagePart = {
-            inlineData: { mimeType: currentImageFile.type, data: base64Image },
-        };
-        const textPart = { text: currentInput };
-        
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: { parts: [textPart, imagePart] },
-          config: safetyInstruction,
-        });
+        const base64Data = await fileToBase64(currentImageFile);
+        encodedImage = { mimeType: currentImageFile.type, data: base64Data };
+      }
 
-        const text = response.text;
-        modelResponse = { role: 'model', text };
+      // Compose the payload for the backend.  The backend will decide whether
+      // to call a text or image model based on the presence of the image and
+      // keywords in the prompt.
+      const payload: any = { prompt: currentInput };
+      if (encodedImage) {
+        payload.image = encodedImage;
+      }
 
+      // Use a relative path so that the same code works locally (e.g. via
+      // proxy) and when deployed.  The base URL can be overridden via
+      // VITE_BACKEND_URL in your .env.local for local development.
+      // Determine the base URL for the backend.  If VITE_BACKEND_URL is
+      // defined (e.g. via .env during local development or build), use it.
+      // Otherwise, fall back to the deployed backend on Render.  This
+      // ensures that the front‑end still works when the environment
+      // variable is not injected at build time (such as on GitHub Pages).
+      const baseUrl = import.meta.env.VITE_BACKEND_URL || 'https://thanit-rachkul.onrender.com';
+      const response = await fetch(`${baseUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}`);
+      }
+      const data = await response.json();
+
+      // Interpret the backend response and map it into our ChatMessageType.
+      let modelResponse: ChatMessageType;
+      if (data.imageUrl) {
+        modelResponse = { role: 'model', imageUrl: data.imageUrl };
       } else {
-        const imageKeywords = ['รูป', 'วาด', 'สร้างภาพ', 'image', 'draw', 'generate image'];
-        const wantsImage = imageKeywords.some(kw => currentInput.toLowerCase().includes(kw));
-
-        if (wantsImage) {
-          const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image',
-            contents: { parts: [{ text: currentInput }] },
-            config: { 
-                responseModalities: [Modality.IMAGE],
-                ...safetyInstruction 
-            },
-          });
-          const part = response.candidates?.[0]?.content?.parts?.[0];
-          if (part?.inlineData) {
-            const base64Image = part.inlineData.data;
-            modelResponse = { role: 'model', imageUrl: `data:${part.inlineData.mimeType};base64,${base64Image}` };
-          } else {
-              modelResponse = { role: 'model', text: 'ขออภัยค่ะ ไม่สามารถสร้างภาพได้ในขณะนี้' };
-          }
-        } else {
-          const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: currentInput,
-            config: { 
-                tools: [{ googleSearch: {} }],
-                ...safetyInstruction
-            },
-          });
-          const text = response.text;
-          const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-          const sources = groundingChunks
-              ?.filter((chunk: any) => chunk.web)
-              .map((chunk: any) => ({
-                  title: chunk.web.title,
-                  uri: chunk.web.uri,
-              })) || [];
-
-          modelResponse = { role: 'model', text, sources };
-        }
+        modelResponse = {
+          role: 'model',
+          text: data.text || 'ขออภัยค่ะ ไม่พบคำตอบ',
+          ...(data.sources ? { sources: data.sources } : {}),
+        };
       }
       setMessages((prev) => [...prev, modelResponse]);
     } catch (error) {
-      console.error('Error contacting AI:', error);
-      const errorMessage: ChatMessageType = { role: 'model', text: 'ขออภัยค่ะ เกิดข้อผิดพลาดบางอย่าง' };
+      console.error('Error contacting backend:', error);
+      const errorMessage: ChatMessageType = {
+        role: 'model',
+        text: 'ขออภัยค่ะ เกิดข้อผิดพลาดบางอย่าง',
+      };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
