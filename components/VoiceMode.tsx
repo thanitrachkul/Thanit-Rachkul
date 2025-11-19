@@ -50,7 +50,7 @@ const VoiceMode: React.FC<VoiceModeProps> = ({ onBack }) => {
     try {
       setStatusMessage('กำลังตอบกลับ...');
       const payload: any = { prompt };
-      const baseUrl = import.meta.env.VITE_BACKEND_URL || '';
+      const baseUrl = import.meta.env.VITE_BACKEND_URL || 'https://rightcode-buddy-backend.onrender.com';
       const response = await fetch(`${baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
