@@ -94,23 +94,40 @@ app.post('/api/chat', async (req, res) => {
     const wantsImage = keywords.some((kw) => prompt.toLowerCase().includes(kw));
 
     if (wantsImage) {
-      // Use the base model with an image response modality.  The "-image" variant
-      // is not always available via the public API.  Specifying the response
-      // modality instructs the model to return a generated image encoded in
-      // base64 without exposing the API key to the client.
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: { parts: [{ text: prompt }] },
-        config: {
-          responseModalities: [Modality.IMAGE],
-          ...safetyInstruction,
-        },
-      });
-      const part = response.candidates?.[0]?.content?.parts?.[0];
-      if (part?.inlineData) {
-        const base64Data = part.inlineData.data;
-        const mimeType = part.inlineData.mimeType || 'image/png';
-        return res.json({ imageUrl: `data:${mimeType};base64,${base64Data}` });
+      // Try a series of models to generate an image.  Not all models are
+      // available in every account, so we attempt multiple options.
+      const tryModels = async (models) => {
+        for (const m of models) {
+          try {
+            const response = await ai.models.generateContent({
+              model: m,
+              contents: { parts: [{ text: prompt }] },
+              config: {
+                responseModalities: [Modality.IMAGE],
+                ...safetyInstruction,
+              },
+            });
+            const part = response.candidates?.[0]?.content?.parts?.[0];
+            if (part?.inlineData) {
+              const base64Data = part.inlineData.data;
+              const mimeType = part.inlineData.mimeType || 'image/png';
+              return { imageUrl: `data:${mimeType};base64,${base64Data}` };
+            }
+          } catch (err) {
+            // Continue to the next model on error
+            console.warn(`Image generation with model ${m} failed`, err);
+          }
+        }
+        return null;
+      };
+      const result = await tryModels([
+        // Higher‑tier models may support vision capabilities
+        'gemini-2.5-pro-vision',
+        'gemini-2.5-flash',
+        'gemini-1.5-pro-vision',
+      ]);
+      if (result) {
+        return res.json(result);
       }
       return res.json({ text: 'ขออภัยค่ะ ไม่สามารถสร้างภาพได้ในขณะนี้' });
     }
